@@ -86,6 +86,7 @@ def main():
     
   # Käytetään väliaikaisesti muutamaa testisivua (test:User:Raikasta, test:User:Raikasta/Sandbox)
   # Kun otetaan testikäyttöön, haetaan page.backlinks() avulla sivujen IDt.
+  # Ja rajataan ne vain artikkelien keskustelusivuihin, tms, mistä on puhe bottipyynnössä.
   generator = pagegenerators.PagesFromPageidGenerator("154167,154174", site)
   bot = AnchoredLinkFixerBot(generator=generator)
 
