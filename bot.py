@@ -1,7 +1,8 @@
 import pywikibot
 from pywikibot.bot import ExistingPageBot
 from pywikibot import pagegenerators
-from pywikibot.textlib import extract_sections, replace_links
+from pywikibot.textlib import extract_sections
+from replacer import replace_links
 from html.parser import HTMLParser
 from urllib.parse import urlsplit, unquote, quote
 import requests 
@@ -13,6 +14,8 @@ import traceback
 # Config pywikibot
 pywikibot.config.max_retries = 2
 pywikibot.config.put_throttle = 5
+pywikibot.config.retry_wait = 2
+pywikibot.config.retry_max = 5
 
 ### Configuration ###
 pages = ['Wikipedia:Kahvihuone_(käytännöt)', 'Wikipedia:Kahvihuone_(Wikipedian_käytön_neuvonta)', 'Wikipedia:Kahvihuone_(sekalaista)', 'Wikipedia:Kahvihuone_(kielenhuolto)', 'Wikipedia:Kahvihuone_(tekniikka)', 'Wikipedia:Kahvihuone_(tekijänoikeudet)', 'Wikipedia:Kahvihuone_(uutiset)', 'Wikipedia:Kahvihuone_(kysy_vapaasti)']
@@ -40,8 +43,12 @@ def neutralize(str):
     return str.replace(" ", "_").lower()
 
 class DirectoryLinkParser(HTMLParser):
-    sections = {}
-    archiveDates = {}
+    def __init__(self, pageName):
+      super().__init__()
+      self.page = pageName
+      self.archiveDates = {}
+      self.sections = {}
+
     def handle_starttag(self, tag, attrs):
         if not tag == "a": return
         for key, value in attrs:
@@ -62,7 +69,7 @@ class DirectoryLinkParser(HTMLParser):
                 else:
                   page = pywikibot.Page(site, path)
                   if page.exists():
-                    date = page.latest_revision.timestamp.posix_timestamp()
+                    date = latest_edit_timestamp(page)
                     self.archiveDates[path] = date
 
                 obj = {
@@ -94,7 +101,7 @@ class AnchoredLinkFixerBot(ExistingPageBot):
 
   def parse_directory(self, page, pageName):
     # Arkistosivut käyttävät Luaa, joten täytyy etsiä keskustelujen otsikot HTML:stä
-    parser = DirectoryLinkParser()
+    parser = DirectoryLinkParser(pageName)
     parser.feed(page.get_parsed_page())
 
     self.sections[neutralize(pageName)] = {}
@@ -134,9 +141,14 @@ class AnchoredLinkFixerBot(ExistingPageBot):
       if section in sections:
         self.links_fixed += 1
         self.temp_links_fixed += 1
-        print("Linkki korjattu!")
         
-        newPage = find_closest_value(sections[section], self.current_page.latest_revision.timestamp.posix_timestamp())
+        entryCount = len(sections[section])
+
+        # Go back history enough to find latest non-minor and non-bot edit
+        revisions = self.current_page.revisions()
+        
+        latestTimestamp = latest_edit_timestamp(self.current_page)
+        newPage = find_closest_value(sections[section], latestTimestamp)
 
         # Muodostetaan linkki-wikitext
         label = groups["label"]
@@ -146,6 +158,7 @@ class AnchoredLinkFixerBot(ExistingPageBot):
           originalPage = groups["title"]
           originalSection = groups["section"]
           label = f"|{originalPage}#{originalSection}"
+        print(f"Linkki korjattu! ({newPage}{label}) ajalla {latestTimestamp}")
         return f"[[{newPage}{label}]]"
       else:
         self.links_not_found.append(page + "#" + section)
@@ -153,6 +166,21 @@ class AnchoredLinkFixerBot(ExistingPageBot):
 
     # Link all good!
     return
+
+def latest_edit_timestamp(page):
+  revisions = list(page.revisions())
+
+  for revision in revisions:
+    if revision.minor == True:
+      continue
+    if "bot" in revision.user.lower():
+      continue
+    if "bot" in revision.comment.lower():
+      continue
+    return revision.timestamp.posix_timestamp()
+
+  # Or return oldest edit
+  return revisions[-1].timestamp.posix_timestamp()
 
 def main():
   print("Haetaan sivut...")
@@ -164,7 +192,7 @@ def main():
      if subPage.pageid != 0:
        ids.append(subPage.pageid)
 
-  generator = pagegenerators.PagesFromPageidGenerator(ids, site)
+  generator = pagegenerators.PagesFromPageidGenerator([561234], site)
   bot = AnchoredLinkFixerBot(generator=generator)
 
   if len(sys.argv) == 2 and sys.argv[1] == "build":
@@ -190,5 +218,6 @@ def main():
   print(", ".join(bot.links_not_found))
 
 if __name__ == '__main__':
+  page = pywikibot.Page(site, "Wikipedia:Kahvihuone (tekniikka)/Arkisto8")
   main()
 
