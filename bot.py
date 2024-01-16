@@ -192,7 +192,7 @@ def main():
      if subPage.pageid != 0:
        ids.append(subPage.pageid)
 
-  generator = pagegenerators.PagesFromPageidGenerator([561234], site)
+  generator = pagegenerators.PagesFromPageidGenerator(ids, site)
   bot = AnchoredLinkFixerBot(generator=generator)
 
   if len(sys.argv) == 2 and sys.argv[1] == "build":
